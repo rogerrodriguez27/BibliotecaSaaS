@@ -83,5 +83,54 @@ namespace Biblioteca.API.Controllers
 
             return prestamo;
         }
+
+        // POST: api/loans/return (DEVOLVER LIBRO)
+        [HttpPost("return")]
+        public async Task<ActionResult> ReturnLibro([FromBody] int prestamoId)
+        {
+            // 1. BUSCAR EL PRÉSTAMO ACTIVO
+            var prestamo = await _context.Prestamos
+                .Include(p => p.Ejemplar)
+                .FirstOrDefaultAsync(p => p.PrestamoId == prestamoId);
+
+            if (prestamo == null)
+                return NotFound("Préstamo no encontrado.");
+
+            if (prestamo.Estado == "Devuelto")
+                return BadRequest("Este préstamo ya fue devuelto anteriormente.");
+
+            // 2. REGISTRAR FECHA DE DEVOLUCIÓN
+            prestamo.FechaDevolucion = DateTime.UtcNow;
+            prestamo.Estado = "Devuelto";
+
+            // 3. LIBERAR EL EJEMPLAR (Para que otro lo pueda pedir)
+            if (prestamo.Ejemplar != null)
+            {
+                prestamo.Ejemplar.Estado = "Disponible";
+            }
+
+            // 4. CALCULAR MULTAS (Si entregó tarde)
+            if (prestamo.FechaDevolucion > prestamo.FechaVencimiento)
+            {
+                var diasRetraso = (prestamo.FechaDevolucion.Value - prestamo.FechaVencimiento).Days;
+
+                if (diasRetraso > 0)
+                {
+                    var multa = new Multa
+                    {
+                        PrestamoId = prestamo.PrestamoId,
+                        DiasRetraso = diasRetraso,
+                        Monto = diasRetraso * 1.50m, // Ejemplo: $1.50 por día de retraso
+                        Estado = "Pendiente"
+                    };
+                    _context.Multas.Add(multa);
+                }
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new { mensaje = "Libro devuelto exitosamente", prestamoId = prestamo.PrestamoId });
+        }
     }
+
 }

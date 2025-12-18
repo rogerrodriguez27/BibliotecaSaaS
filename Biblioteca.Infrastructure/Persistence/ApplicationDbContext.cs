@@ -24,6 +24,8 @@ namespace Biblioteca.Infrastructure.Persistence
         public DbSet<Socio> Socios { get; set; }
         public DbSet<Prestamo> Prestamos { get; set; }
 
+        public DbSet<Multa> Multas { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Aquí configuramos reglas especiales si es necesario.
@@ -36,6 +38,7 @@ namespace Biblioteca.Infrastructure.Persistence
             modelBuilder.Entity<Ejemplar>().ToTable("Ejemplares");
             modelBuilder.Entity<Socio>().ToTable("Socios");
             modelBuilder.Entity<Prestamo>().ToTable("Prestamos");
+            modelBuilder.Entity<Multa>().ToTable("Multas");
         }
     }
 }
