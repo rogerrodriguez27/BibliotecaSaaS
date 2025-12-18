@@ -26,6 +26,8 @@ namespace Biblioteca.Infrastructure.Persistence
 
         public DbSet<Multa> Multas { get; set; }
 
+        public DbSet<Usuario> Users { get; set; } // Ojo: La clase se llama Usuario, la tabla Usuarios
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Aquí configuramos reglas especiales si es necesario.
@@ -39,6 +41,7 @@ namespace Biblioteca.Infrastructure.Persistence
             modelBuilder.Entity<Socio>().ToTable("Socios");
             modelBuilder.Entity<Prestamo>().ToTable("Prestamos");
             modelBuilder.Entity<Multa>().ToTable("Multas");
+            modelBuilder.Entity<Usuario>().ToTable("Usuarios");
         }
     }
 }
