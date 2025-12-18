@@ -1,5 +1,6 @@
 ﻿using Biblioteca.Domain.Entities;
 using Biblioteca.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,6 +8,7 @@ namespace Biblioteca.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class LoansController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -53,7 +55,14 @@ namespace Biblioteca.API.Controllers
 
             // === AGREGAR ESTO (Parche temporal) ===
             // Como no hay login, usamos el ID 1 (Admin) que creó el script SQL por defecto
-            prestamo.RegistradoPorUsuarioId = 1;
+            //prestamo.RegistradoPorUsuarioId = 1;
+
+            var usuarioIdClaim = User.FindFirst("UsuarioId");
+
+            if (usuarioIdClaim == null)
+                return Unauthorized("No se pudo identificar al usuario.");
+
+            prestamo.RegistradoPorUsuarioId = int.Parse(usuarioIdClaim.Value);
             // ======================================
 
             // Guardamos el préstamo
