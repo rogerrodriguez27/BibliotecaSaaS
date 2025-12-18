@@ -58,5 +58,56 @@ namespace Biblioteca.API.Controllers
 
             return CreatedAtAction(nameof(GetUsuarios), new { id = usuario.UsuarioId }, usuario);
         }
+
+        // PUT: api/users/5
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateUsuario(int id, Usuario usuario)
+        {
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
+
+            if (id != usuario.UsuarioId) return BadRequest();
+
+            var userExistente = await _context.Users
+                .FirstOrDefaultAsync(u => u.UsuarioId == id && u.InquilinoId == inquilinoId);
+
+            if (userExistente == null) return NotFound();
+
+            userExistente.NombreCompleto = usuario.NombreCompleto;
+            userExistente.Rol = usuario.Rol;
+            userExistente.EstaActivo = usuario.EstaActivo;
+
+            // Solo actualizamos contraseña si envían algo nuevo
+            if (!string.IsNullOrEmpty(usuario.Contrasena))
+            {
+                userExistente.Contrasena = usuario.Contrasena;
+            }
+
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
+        // DELETE: api/users/5
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteUsuario(int id)
+        {
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
+
+            // Evitar que te borres a ti mismo
+            var miId = int.Parse(User.FindFirst("UsuarioId").Value);
+            if (id == miId) return BadRequest("No puedes eliminar tu propio usuario.");
+
+            var usuario = await _context.Users
+                .FirstOrDefaultAsync(u => u.UsuarioId == id && u.InquilinoId == inquilinoId);
+
+            if (usuario == null) return NotFound();
+
+            _context.Users.Remove(usuario);
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
     }
 }
