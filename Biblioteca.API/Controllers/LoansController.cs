@@ -83,6 +83,15 @@ namespace Biblioteca.API.Controllers
 
             return prestamo;
         }
+        // GET: api/loans (LISTAR PRÉSTAMOS)
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Prestamo>>> GetPrestamos()
+        {
+            return await _context.Prestamos
+                .Include(p => p.Ejemplar)
+                .Include(p => p.Socio)
+                .ToListAsync();
+        }
 
         // POST: api/loans/return (DEVOLVER LIBRO)
         [HttpPost("return")]
