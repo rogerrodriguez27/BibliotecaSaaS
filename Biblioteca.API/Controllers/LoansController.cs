@@ -51,6 +51,11 @@ namespace Biblioteca.API.Controllers
             prestamo.FechaVencimiento = DateTime.UtcNow.AddDays(14);
             prestamo.Estado = "Activo";
 
+            // === AGREGAR ESTO (Parche temporal) ===
+            // Como no hay login, usamos el ID 1 (Admin) que creó el script SQL por defecto
+            prestamo.RegistradoPorUsuarioId = 1;
+            // ======================================
+
             // Guardamos el préstamo
             _context.Prestamos.Add(prestamo);
 
