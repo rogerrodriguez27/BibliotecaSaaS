@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -21,6 +22,8 @@ namespace Biblioteca.Domain.Entities
         // === ¡AGREGA ESTA LÍNEA! ===
         public int RegistradoPorUsuarioId { get; set; }
         // ===========================
+        [ForeignKey("RegistradoPorUsuarioId")] // <--- Pon aquí el nombre exacto del int de arriba
+        public virtual Usuario? Usuario { get; set; }
 
         public DateTime FechaPrestamo { get; set; } = DateTime.UtcNow;
 

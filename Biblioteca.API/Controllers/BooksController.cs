@@ -17,12 +17,19 @@ namespace Biblioteca.API.Controllers
         }
 
         // 1. OBTENER TODOS LOS LIBROS (GET: api/books)
+        // GET: api/Books
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Libro>>> GetLibros()
         {
-            // OJO: En el futuro aquí filtraremos por el usuario logueado.
-            // Por ahora, devuelve todo lo que haya en la base de datos.
-            return await _context.Libros.ToListAsync();
+            // 1. Identificar quién está preguntando
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
+
+            // 2. Traer SOLO sus libros
+            return await _context.Libros
+                .Where(l => l.InquilinoId == inquilinoId) // <--- FILTRO DE SEGURIDAD
+                .ToListAsync();
         }
 
         // 2. CREAR UN LIBRO NUEVO (POST: api/books)
@@ -71,7 +78,7 @@ namespace Biblioteca.API.Controllers
             return NoContent(); // 204 significa "Hecho, todo bien"
         }
 
-        // DELETE: api/books/5 (ELIMINAR)
+        // DELETE: api/books/5
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteLibro(int id)
         {
@@ -79,21 +86,54 @@ namespace Biblioteca.API.Controllers
             if (inquilinoIdClaim == null) return Unauthorized();
             int inquilinoId = int.Parse(inquilinoIdClaim.Value);
 
+            // 1. TRAER EL LIBRO CON SUS COPIAS
             var libro = await _context.Libros
+                .Include(l => l.Ejemplares)
                 .FirstOrDefaultAsync(l => l.LibroId == id && l.InquilinoId == inquilinoId);
 
             if (libro == null) return NotFound();
 
+            // 2. SEGURIDAD: ¿Hay libros en la calle?
+            // Si alguien tiene el libro en su casa (Activo), NO dejamos borrar.
+            var tienePrestamosActivos = await _context.Prestamos
+                .Include(p => p.Ejemplar)
+                .AnyAsync(p => p.Ejemplar.LibroId == id && p.Estado == "Activo");
+
+            if (tienePrestamosActivos)
+            {
+                return BadRequest("No se puede eliminar: Hay copias prestadas actualmente a socios.");
+            }
+
+            // 3. LIMPIEZA PROFUNDA (Historial)
+            // Si nadie lo tiene, borramos su rastro histórico para que SQL no se queje.
+
+            // a) Identificar las copias de este libro
+            var ejemplaresIds = libro.Ejemplares.Select(e => e.EjemplarId).ToList();
+
+            // b) Buscar todo el historial de préstamos (incluso los devueltos)
+            var historialPrestamos = await _context.Prestamos
+                .Where(p => ejemplaresIds.Contains(p.EjemplarId))
+                .ToListAsync();
+
+            // c) Buscar multas asociadas a ese historial
+            var multasHistorial = await _context.Multas
+                .Where(m => historialPrestamos.Select(p => p.PrestamoId).Contains(m.PrestamoId))
+                .ToListAsync();
+
+            // 4. BORRAR EN ORDEN (De abajo hacia arriba)
             try
             {
-                _context.Libros.Remove(libro);
+                _context.Multas.RemoveRange(multasHistorial);       // 1. Adiós multas
+                _context.Prestamos.RemoveRange(historialPrestamos); // 2. Adiós historial
+                _context.Ejemplares.RemoveRange(libro.Ejemplares);  // 3. Adiós copias físicas
+                _context.Libros.Remove(libro);                      // 4. Adiós libro padre
+
                 await _context.SaveChangesAsync();
                 return NoContent();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Si falla (ej: tiene copias o préstamos), avisamos
-                return BadRequest("No se puede eliminar el libro porque tiene copias o registros asociados.");
+                return BadRequest($"Error crítico al eliminar: {ex.Message}");
             }
         }
     }
