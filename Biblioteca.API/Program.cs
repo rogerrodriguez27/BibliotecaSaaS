@@ -8,6 +8,17 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// 1. DEFINIR LA POLÍTICA CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("NuevaPolitica", app =>
+    {
+        app.AllowAnyOrigin()   // En producción se pone la URL exacta, aquí permitimos todo
+           .AllowAnyHeader()
+           .AllowAnyMethod();
+    });
+});
+
 // === AGREGAR ESTO: Configuración de Base de Datos ===
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
@@ -79,6 +90,9 @@ builder.Services.AddSwaggerGen(c =>
 // ============================================
 
 var app = builder.Build();
+
+// 2. ACTIVAR LA POLÍTICA
+app.UseCors("NuevaPolitica");
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
