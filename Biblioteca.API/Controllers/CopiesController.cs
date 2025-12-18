@@ -53,26 +53,37 @@ namespace Biblioteca.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteCopia(int id)
         {
-            // Validar Inquilino...
             var inquilinoIdClaim = User.FindFirst("InquilinoId");
             if (inquilinoIdClaim == null) return Unauthorized();
             int inquilinoId = int.Parse(inquilinoIdClaim.Value);
 
             var copia = await _context.Ejemplares
-                .Include(c => c.Libro) // Incluir libro para validar inquilino
+                .Include(c => c.Libro)
                 .FirstOrDefaultAsync(c => c.EjemplarId == id);
 
             if (copia == null || copia.Libro.InquilinoId != inquilinoId) return NotFound();
 
-            // Validar si ESTA copia específica está prestada
+            // 1. SEGURIDAD: ¿Está prestada ahora mismo?
             bool estaPrestada = await _context.Prestamos
                 .AnyAsync(p => p.EjemplarId == id && p.Estado == "Activo");
 
             if (estaPrestada) return BadRequest("No puedes eliminar esta copia porque está prestada.");
 
-            _context.Ejemplares.Remove(copia);
-            await _context.SaveChangesAsync();
+            // 2. LIMPIEZA HISTÓRICA
+            // Borramos el recuerdo de que esta copia existió en préstamos pasados
+            var historial = await _context.Prestamos
+                .Where(p => p.EjemplarId == id)
+                .ToListAsync();
 
+            var multas = await _context.Multas
+                .Where(m => historial.Select(p => p.PrestamoId).Contains(m.PrestamoId))
+                .ToListAsync();
+
+            _context.Multas.RemoveRange(multas);
+            _context.Prestamos.RemoveRange(historial);
+            _context.Ejemplares.Remove(copia);
+
+            await _context.SaveChangesAsync();
             return NoContent();
         }
     }

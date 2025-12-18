@@ -18,40 +18,49 @@ namespace Biblioteca.API.Controllers
 
         // GET: api/reports/dashboard?inquilinoId=1
         [HttpGet("dashboard")]
-        public async Task<ActionResult<DashboardResumen>> GetDashboardStats([FromQuery] int inquilinoId)
+        public async Task<IActionResult> GetDashboardStats()
         {
-            if (inquilinoId <= 0) return BadRequest("Se requiere el InquilinoId");
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
 
-            var stats = new DashboardResumen();
+            // 1. Contadores Generales
+            var totalLibros = await _context.Libros.CountAsync(x => x.InquilinoId == inquilinoId);
+            var totalSocios = await _context.Socios.CountAsync(x => x.InquilinoId == inquilinoId);
 
-            // 1. Total de Libros (Títulos)
-            stats.TotalLibros = await _context.Libros
-                .CountAsync(l => l.InquilinoId == inquilinoId);
+            var prestamosActivos = await _context.Prestamos
+                .CountAsync(x => x.InquilinoId == inquilinoId && x.Estado == "Activo");
 
-            // 2. Total de Socios Activos
-            stats.TotalSocios = await _context.Socios
-                .CountAsync(s => s.InquilinoId == inquilinoId && s.Estado == "Activo");
+            var prestamosVencidos = await _context.Prestamos
+                .CountAsync(x => x.InquilinoId == inquilinoId &&
+                                 x.Estado == "Activo" &&
+                                 x.FechaVencimiento < DateTime.Now);
 
-            // 3. Préstamos Activos (Libros en la calle)
-            stats.PrestamosActivos = await _context.Prestamos
-                .CountAsync(p => p.InquilinoId == inquilinoId && p.Estado == "Activo");
+            // 2. NUEVO: Traer los últimos 5 movimientos recientes
+            var ultimosPrestamos = await _context.Prestamos
+                .Include(p => p.Socio)
+                .Include(p => p.Ejemplar).ThenInclude(e => e.Libro)
+                .Where(x => x.InquilinoId == inquilinoId)
+                .OrderByDescending(x => x.FechaPrestamo) // Los más nuevos primero
+                .Take(5) // Solo los 5 últimos
+                .Select(p => new
+                {
+                    p.PrestamoId,
+                    Libro = p.Ejemplar.Libro.Titulo,
+                    Socio = p.Socio.NombreCompleto,
+                    Fecha = p.FechaPrestamo.ToString("dd/MM/yyyy"), // Formato bonito
+                    Estado = p.Estado
+                })
+                .ToListAsync();
 
-            // 4. Préstamos Vencidos (Fecha Vencimiento < Hoy)
-            // Nota: Solo contamos los que siguen "Activos" (no devueltos) pero ya vencieron
-            stats.PrestamosVencidos = await _context.Prestamos
-                .CountAsync(p => p.InquilinoId == inquilinoId
-                                 && p.Estado == "Activo"
-                                 && p.FechaVencimiento < DateTime.UtcNow);
-
-            // 5. Total Dinero en Multas (Pendientes)
-            // Nota: Aquí sumamos el dinero, no la cantidad de multas
-            // Usamos Join porque la multa no tiene InquilinoId directo, llegamos a través del Préstamo
-            stats.TotalMultasPendientes = await _context.Multas
-                .Include(m => m.Prestamo)
-                .Where(m => m.Estado == "Pendiente" && m.Prestamo.InquilinoId == inquilinoId)
-                .SumAsync(m => m.Monto);
-
-            return Ok(stats);
+            return Ok(new
+            {
+                totalLibros,
+                totalSocios,
+                prestamosActivos,
+                prestamosVencidos,
+                ultimosPrestamos // <--- Enviamos la lista al frontend
+            });
         }
 
         // GET: api/reports/socio/5

@@ -18,63 +18,64 @@ namespace Biblioteca.API.Controllers
             _context = context;
         }
 
-        // POST: api/loans (SOLICITAR PRÉSTAMO)
+
+        // POST: api/Loans
         [HttpPost]
-        public async Task<ActionResult<Prestamo>> CreatePrestamo(Prestamo prestamo)
+        public async Task<ActionResult<Prestamo>> PostPrestamo(Prestamo prestamo)
         {
-            // 1. Validar datos mínimos
-            if (prestamo.InquilinoId <= 0 || prestamo.EjemplarId <= 0 || prestamo.SocioId <= 0)
-                return BadRequest("Faltan datos (Inquilino, Ejemplar o Socio).");
+            // 1. Obtener Inquilino del Token
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
 
-            // 2. BUSCAR EL EJEMPLAR Y VERIFICAR DISPONIBILIDAD
-            var ejemplar = await _context.Ejemplares
-                .FirstOrDefaultAsync(e => e.EjemplarId == prestamo.EjemplarId && e.InquilinoId == prestamo.InquilinoId);
+            // 2. Obtener Usuario (Bibliotecario) del Token ¡ESTO ES LO NUEVO!
+            var usuarioIdClaim = User.FindFirst("UsuarioId");
+            if (usuarioIdClaim == null) return Unauthorized("No se identificó al usuario que registra.");
+            int usuarioId = int.Parse(usuarioIdClaim.Value);
 
-            if (ejemplar == null)
-                return NotFound("El ejemplar no existe.");
+            // 3. Asignar los IDs de seguridad al objeto
+            prestamo.InquilinoId = inquilinoId;
 
-            if (ejemplar.Estado != "Disponible")
-                return BadRequest($"El ejemplar no está disponible (Estado actual: {ejemplar.Estado}).");
+            // IMPORTANTE: Verifica si en tu modelo 'Prestamo.cs' la propiedad se llama 
+            // "UsuarioId" o "RegistradoPorUsuarioId". 
+            // Basado en tu error FK_Prestamos_Usuarios, debería ser una de las dos.
+            // Usaré 'UsuarioId' como ejemplo, si te marca rojo, cámbialo a 'RegistradoPorUsuarioId'.
+            prestamo.RegistradoPorUsuarioId = usuarioId; // <--- AQUÍ ESTABA EL ERROR
 
-            // 3. BUSCAR AL SOCIO Y VERIFICAR ESTADO
-            var socio = await _context.Socios
-                .FirstOrDefaultAsync(s => s.SocioId == prestamo.SocioId && s.InquilinoId == prestamo.InquilinoId);
-
-            if (socio == null)
-                return NotFound("El socio no existe.");
-
-            if (socio.Estado != "Activo")
-                return BadRequest("El socio no está activo y no puede pedir libros.");
-
-            // 4. APLICAR REGLAS DE NEGOCIO (Crear préstamo + Bloquear libro)
-
-            // Calculamos fecha de vencimiento (Ej: 14 días a partir de hoy)
-            prestamo.FechaPrestamo = DateTime.UtcNow;
-            prestamo.FechaVencimiento = DateTime.UtcNow.AddDays(14);
             prestamo.Estado = "Activo";
 
-            // === AGREGAR ESTO (Parche temporal) ===
-            // Como no hay login, usamos el ID 1 (Admin) que creó el script SQL por defecto
-            //prestamo.RegistradoPorUsuarioId = 1;
+            // 4. VALIDAR FECHAS
+            if (prestamo.FechaPrestamo == default)
+            {
+                prestamo.FechaPrestamo = DateTime.Now;
+            }
 
-            var usuarioIdClaim = User.FindFirst("UsuarioId");
+            if (prestamo.FechaVencimiento == default)
+            {
+                prestamo.FechaVencimiento = prestamo.FechaPrestamo.AddDays(7);
+            }
 
-            if (usuarioIdClaim == null)
-                return Unauthorized("No se pudo identificar al usuario.");
+            if (prestamo.FechaVencimiento < prestamo.FechaPrestamo)
+            {
+                return BadRequest("La fecha de vencimiento no puede ser anterior a la fecha de préstamo.");
+            }
 
-            prestamo.RegistradoPorUsuarioId = int.Parse(usuarioIdClaim.Value);
-            // ======================================
+            // 5. Validar disponibilidad del libro
+            var copia = await _context.Ejemplares.FindAsync(prestamo.EjemplarId);
+            if (copia == null || copia.Estado != "Disponible")
+            {
+                return BadRequest("El libro no está disponible para préstamo.");
+            }
 
-            // Guardamos el préstamo
+            // 6. Guardar
             _context.Prestamos.Add(prestamo);
 
-            // CAMBIAMOS EL ESTADO DEL LIBRO A "PRESTADO"
-            ejemplar.Estado = "Prestado";
-            // (Entity Framework detecta que modificamos 'ejemplar' y generará el UPDATE automático)
+            // Actualizar estado del libro
+            copia.Estado = "Prestado";
 
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetPrestamo), new { id = prestamo.PrestamoId }, prestamo);
+            return CreatedAtAction("GetPrestamo", new { id = prestamo.PrestamoId }, prestamo);
         }
 
         // GET: api/loans/{id} (Para ver el recibo del préstamo)
@@ -92,13 +93,22 @@ namespace Biblioteca.API.Controllers
 
             return prestamo;
         }
-        // GET: api/loans (LISTAR PRÉSTAMOS)
+
+        // GET: api/Loans
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Prestamo>>> GetPrestamos()
         {
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
+
             return await _context.Prestamos
+                .Include(p => p.Socio)        // Datos del lector
+                .Include(p => p.Usuario)      // <--- ¡NUEVO! Datos del bibliotecario responsable
                 .Include(p => p.Ejemplar)
-                .Include(p => p.Socio)
+                    .ThenInclude(e => e.Libro)
+                .Where(p => p.InquilinoId == inquilinoId)
+                .OrderByDescending(p => p.FechaPrestamo)
                 .ToListAsync();
         }
 
