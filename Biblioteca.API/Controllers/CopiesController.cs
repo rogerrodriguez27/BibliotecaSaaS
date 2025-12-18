@@ -48,5 +48,32 @@ namespace Biblioteca.API.Controllers
 
             return CreatedAtAction(nameof(GetEjemplares), new { id = ejemplar.EjemplarId }, ejemplar);
         }
+
+        // DELETE: api/copies/5
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteCopia(int id)
+        {
+            // Validar Inquilino...
+            var inquilinoIdClaim = User.FindFirst("InquilinoId");
+            if (inquilinoIdClaim == null) return Unauthorized();
+            int inquilinoId = int.Parse(inquilinoIdClaim.Value);
+
+            var copia = await _context.Ejemplares
+                .Include(c => c.Libro) // Incluir libro para validar inquilino
+                .FirstOrDefaultAsync(c => c.EjemplarId == id);
+
+            if (copia == null || copia.Libro.InquilinoId != inquilinoId) return NotFound();
+
+            // Validar si ESTA copia específica está prestada
+            bool estaPrestada = await _context.Prestamos
+                .AnyAsync(p => p.EjemplarId == id && p.Estado == "Activo");
+
+            if (estaPrestada) return BadRequest("No puedes eliminar esta copia porque está prestada.");
+
+            _context.Ejemplares.Remove(copia);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
     }
 }

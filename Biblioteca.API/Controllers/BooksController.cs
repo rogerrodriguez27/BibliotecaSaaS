@@ -71,7 +71,7 @@ namespace Biblioteca.API.Controllers
             return NoContent(); // 204 significa "Hecho, todo bien"
         }
 
-        // DELETE: api/books/5 (ELIMINAR)
+        // DELETE: api/books/5
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteLibro(int id)
         {
@@ -79,21 +79,42 @@ namespace Biblioteca.API.Controllers
             if (inquilinoIdClaim == null) return Unauthorized();
             int inquilinoId = int.Parse(inquilinoIdClaim.Value);
 
+            // 1. CARGAR EL LIBRO Y SUS COPIAS
             var libro = await _context.Libros
+                .Include(l => l.Ejemplares) // ¡Importante traer las copias!
                 .FirstOrDefaultAsync(l => l.LibroId == id && l.InquilinoId == inquilinoId);
 
             if (libro == null) return NotFound();
 
+            // 2. VERIFICAR SI HAY PRÉSTAMOS ACTIVOS (Seguridad)
+            // Buscamos si ALGUNA de las copias de este libro está en manos de un socio
+            var tienePrestamosActivos = await _context.Prestamos
+                .Include(p => p.Ejemplar)
+                .AnyAsync(p => p.Ejemplar.LibroId == id && p.Estado == "Activo");
+
+            if (tienePrestamosActivos)
+            {
+                return BadRequest("No se puede eliminar el libro: Hay copias prestadas a socios actualmente.");
+            }
+
+            // 3. ELIMINAR LAS COPIAS PRIMERO (Cascada Manual)
+            // Como ya validamos que nadie las tiene, es seguro borrarlas.
+            if (libro.Ejemplares != null && libro.Ejemplares.Any())
+            {
+                _context.Ejemplares.RemoveRange(libro.Ejemplares);
+            }
+
+            // 4. AHORA SÍ, ELIMINAR EL LIBRO PADRE
+            _context.Libros.Remove(libro);
+
             try
             {
-                _context.Libros.Remove(libro);
                 await _context.SaveChangesAsync();
                 return NoContent();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Si falla (ej: tiene copias o préstamos), avisamos
-                return BadRequest("No se puede eliminar el libro porque tiene copias o registros asociados.");
+                return BadRequest($"Error al eliminar: {ex.Message}");
             }
         }
     }
